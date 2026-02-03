@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PM2.5 & Data Analytics Dashboard</title>
+    
+    <!-- Fonts: Noto Sans Thai -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- PapaParse (For CSV Parsing) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body {
+            font-family: 'Noto Sans Thai', sans-serif;
+            background-color: #f8fafc;
+        }
+        .card {
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Custom Scrollbar for Table */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #c7c7c7;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+        /* Modal Animation */
+        .modal-enter {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        .modal-enter-active {
+            opacity: 1;
+            transform: scale(1);
+            transition: opacity 300ms, transform 300ms;
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <!-- Navbar -->
+    <nav class="bg-white shadow-sm border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-red-50 p-2 rounded-lg">
+                        <i data-lucide="activity" class="text-red-600 w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold text-slate-900 leading-tight">PM2.5 & CSV Analytics</h1>
+                        <p class="text-xs text-slate-500">ระบบวิเคราะห์ข้อมูลอัตโนมัติ</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <!-- Load URL Button -->
+                    <button onclick="openUrlModal()" class="bg-white hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm font-medium border border-slate-200 shadow-sm">
+                        <i data-lucide="globe" class="w-4 h-4 text-blue-500"></i>
+                        <span>Load from URL</span>
+                    </button>
+
+                    <!-- Upload File Button -->
+                    <label for="csvInput" class="cursor-pointer bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition text-sm font-medium shadow-sm ring-1 ring-slate-900/10">
+                        <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                        <span>อัปโหลด CSV</span>
+                    </label>
+                    <input type="file" id="csvInput" accept=".csv" class="hidden">
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Status Message -->
+        <div id="statusMessage" class="hidden mb-6 p-4 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-3 animate-pulse">
+            <i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i>
+            <span id="statusText" class="font-medium">กำลังประมวลผลข้อมูล...</span>
+        </div>
+
+        <!-- Dashboard Header Info -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+                <h2 class="text-2xl font-bold text-slate-900">ภาพรวมสถานการณ์ (Overview)</h2>
+                <p class="text-slate-500 mt-1">วิเคราะห์ข้อมูลจากไฟล์: <span id="fileName" class="font-medium text-slate-700">PM2.5_Thailand_Stat_2023_2026.csv (ตัวอย่าง)</span></p>
+            </div>
+            <div class="flex gap-2">
+                 <span class="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-semibold border border-red-200" id="highRiskLabel">High Risk Areas Detected</span>
+                 <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold border border-green-200" id="dataRangeLabel">2023 - 2026</span>
+            </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- Max Value -->
+            <div class="card bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
+                <div class="absolute right-0 top-0 h-full w-1 bg-red-500"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">ค่าสูงสุด (Peak Daily)</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="kpiMax">-</h3>
+                    </div>
+                    <div class="p-2 bg-red-50 rounded-lg text-red-600">
+                        <i data-lucide="flame" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400" id="kpiMaxDetail">จังหวัดที่สูงที่สุด</p>
+            </div>
+
+            <!-- Average Value -->
+            <div class="card bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
+                <div class="absolute right-0 top-0 h-full w-1 bg-orange-400"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">ค่าเฉลี่ยรวม (Avg PM2.5)</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="kpiAvg">-</h3>
+                    </div>
+                    <div class="p-2 bg-orange-50 rounded-lg text-orange-600">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400">µg/m³ ตลอดช่วงเวลา</p>
+            </div>
+
+            <!-- Total Records -->
+            <div class="card bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
+                <div class="absolute right-0 top-0 h-full w-1 bg-blue-500"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">จำนวนข้อมูล (Records)</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="kpiCount">-</h3>
+                    </div>
+                    <div class="p-2 bg-blue-50 rounded-lg text-blue-600">
+                        <i data-lucide="file-text" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400">เดือนที่มีข้อมูล</p>
+            </div>
+
+            <!-- Current Trend -->
+            <div class="card bg-white p-5 rounded-xl shadow-sm border border-slate-200 relative overflow-hidden">
+                <div class="absolute right-0 top-0 h-full w-1 bg-emerald-500"></div>
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <p class="text-sm font-medium text-slate-500">ปีล่าสุด (Latest Year)</p>
+                        <h3 class="text-2xl font-bold text-slate-900 mt-1" id="kpiLatestYear">-</h3>
+                    </div>
+                    <div class="p-2 bg-emerald-50 rounded-lg text-emerald-600">
+                        <i data-lucide="calendar-check" class="w-5 h-5"></i>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400" id="kpiLatestDetail">ข้อมูลล่าสุด</p>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Line Chart: Monthly Trend (Takes up 2 columns) -->
+            <div class="card bg-white p-6 rounded-xl shadow-sm border border-slate-200 lg:col-span-2">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            <i data-lucide="trending-up" class="w-5 h-5 text-slate-500"></i>
+                            แนวโน้มรายเดือน (Monthly Trend)
+                        </h2>
+                        <p class="text-sm text-slate-500">เปรียบเทียบค่าเฉลี่ยในแต่ละช่วงเวลา</p>
+                    </div>
+                    <select id="yearFilter" class="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-slate-500 focus:border-slate-500 block p-2 px-4 shadow-sm">
+                        <option value="all">แสดงทุกปี</option>
+                    </select>
+                </div>
+                <div class="relative h-[400px] w-full">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Bar Chart: Yearly Comparison (Takes up 1 column) -->
+            <div class="card bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <div class="mb-6">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="bar-chart" class="w-5 h-5 text-slate-500"></i>
+                        รายปี (Yearly Avg)
+                    </h2>
+                    <p class="text-sm text-slate-500">ค่าเฉลี่ยรวมแยกรายปี</p>
+                </div>
+                <div class="relative h-[400px] w-full">
+                    <canvas id="yearlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table Preview -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div class="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="table" class="w-5 h-5 text-slate-500"></i>
+                        ข้อมูลดิบ (Data Table)
+                    </h2>
+                    <p class="text-sm text-slate-500">แสดงข้อมูล 100 รายการล่าสุด</p>
+                </div>
+                <div class="flex items-center gap-2 text-xs text-slate-500 bg-white px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
+                    <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                    <span id="detectedColumns">Ready</span>
+                </div>
+            </div>
+            <div class="overflow-x-auto custom-scrollbar">
+                <table class="w-full text-sm text-left text-slate-600">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50 border-b border-slate-200" id="tableHeader">
+                        <!-- Headers will be injected here -->
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-100">
+                        <!-- Rows will be injected here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- URL Input Modal -->
+    <div id="urlModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center z-[60] transition-opacity duration-300">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-lg w-full mx-4 border border-slate-100">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <i data-lucide="link" class="w-5 h-5 text-blue-500"></i>
+                    Load Data from URL
+                </h3>
+                <button onclick="closeUrlModal()" class="text-slate-400 hover:text-slate-600">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <p class="text-sm text-slate-500 mb-4">
+                วางลิงก์ไฟล์ CSV (หรือ Google Sheets ที่ Publish เป็น CSV) เพื่อดึงข้อมูลโดยตรง
+            </p>
+
+            <input type="text" id="urlInput" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv" 
+                class="w-full border border-slate-300 rounded-lg p-3 mb-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm text-slate-700 font-mono">
+            
+            <div class="text-xs text-slate-400 mb-6 bg-slate-50 p-3 rounded border border-slate-100">
+                <strong>Tip:</strong> สำหรับ Google Sheets ให้ไปที่ <em>File > Share > Publish to web</em> แล้วเลือกรูปแบบเป็น <strong>Comma-separated values (.csv)</strong>
+            </div>
+
+            <div class="flex justify-end gap-3">
+                <button onclick="closeUrlModal()" class="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm font-medium transition">Cancel</button>
+                <button onclick="loadFromUrl()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium transition shadow-sm flex items-center gap-2">
+                    <span>Load Data</span>
+                    <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-white border-t border-slate-200 mt-12 py-8">
+        <div class="max-w-7xl mx-auto px-4 text-center">
+            <p class="text-slate-500 text-sm">Dashboard Generator by Gemini</p>
+            <p class="text-slate-400 text-xs mt-1">รองรับไฟล์ CSV มาตรฐานและไฟล์สถิติ PM2.5</p>
+        </div>
+    </footer>
+
+    <script>
+        // --- 1. State Management ---
+        let rawData = [];
+        let chartInstances = {
+            monthly: null,
+            yearly: null
+        };
+        // Month name mapping for sorting
+        const monthMap = {
+            "January": 0, "February": 1, "March": 2, "April": 3, "May": 4, "June": 5,
+            "July": 6, "August": 7, "September": 8, "October": 9, "November": 10, "December": 11,
+            "Jan": 0, "Feb": 1, "Mar": 2, "Apr": 3, "Jun": 5, "Jul": 6, "Aug": 7, "Sep": 8, "Oct": 9, "Nov": 10, "Dec": 11
+        };
+
+        // --- 2. Mock Data (PM2.5 Template) ---
+        const mockCSV = `Year,Month,Average PM2.5 (ug/m3),Highest Province,Peak Daily Value (ug/m3),Health Impact Level,Notes
+2023,January,35.2,Samut Sakhon,85,Unhealthy,เริ่มสะสมตัวในภาคกลางและ กทม.
+2023,February,55.4,Chiang Mai,150,Hazardous,ภาคเหนือเริ่มวิกฤตจากการเผา
+2023,March,72.1,Mae Hong Son,200,Hazardous,ช่วงวิกฤตสูงสุดของปี ติดอันดับโลก
+2023,April,65.8,Chiang Rai,180,Hazardous,ฝุ่นข้ามพรมแดนหนาแน่น
+2023,May,30.5,Phayao,70,Moderate,เริ่มเข้าสู่ฤดูฝน ค่าฝุ่นลดลง
+2023,June,18.2,Bangkok,45,Good,อากาศดี ลมมรสุมพัดผ่าน
+2023,July,15.4,Saraburi,35,Good,อากาศดี ฝนตกชะล้างฝุ่น
+2023,August,14.8,Rayong,30,Good,อากาศดีที่สุดของปี
+2023,September,16.5,Bangkok,38,Moderate,เริ่มมีฝุ่นสะสมช่วงปลายเดือน
+2023,October,22.1,Bangkok,55,Unhealthy for Sensitive Groups,ปลายฝนต้นหนาว ความกดอากาศสูง
+2023,November,28.9,Samut Sakhon,68,Unhealthy,การจราจรและโรงงานอุตสาหกรรม
+2023,December,40.5,Phrae,90,Unhealthy,เริ่มมีการเผาชีวมวล
+2024,January,42.1,Bangkok,95,Unhealthy,ค่าฝุ่นสูงต่อเนื่อง
+2024,February,58.2,Chiang Mai,160,Hazardous,เอลนีโญทำให้แล้งจัด ฝุ่นเยอะกว่าปีก่อน
+2024,March,75.0,Mae Hong Son,210,Hazardous,วิกฤตหมอกควันข้ามพรมแดน
+2024,April,60.5,Nan,170,Hazardous,เริ่มมีพายุฤดูร้อนช่วยลดฝุ่นบ้าง
+2024,May,25.0,Lampang,60,Moderate,เข้าหน้าฝนเร็วกว่าปกติ
+2024,June,15.8,Chon Buri,38,Good,อากาศเริ่มดีขึ้น
+2024,July,16.2,Saraburi,32,Good,ฝนตกสม่ำเสมอ
+2024,August,15.1,Chon Buri,30,Good,ช่วงอากาศสะอาด
+2024,September,18.0,Bangkok,40,Moderate,เริ่มกลับมาสะสมตัว
+2024,October,25.4,Nakhon Pathom,60,Unhealthy for Sensitive Groups,ความกดอากาศสูงแผ่ลงมา
+2024,November,31.2,Samut Sakhon,80,Unhealthy,ฝุ่น PM 2.5 เริ่มเกินมาตรฐานในเมืองใหญ่
+2024,December,42.5,Phrae,95,Unhealthy,เริ่มมีการเผาพื้นที่เกษตรภาคเหนือตอนล่าง
+2025,January,45.2,Bangkok,110,Unhealthy,ค่าฝุ่นพุ่งสูงใน กทม. จากสภาพอากาศปิด
+2025,February,60.1,Chiang Mai,175,Hazardous,วิกฤตหนักในภาคเหนือตอนบน
+2025,March,78.5,Mae Hong Son,230,Hazardous,ค่าฝุ่นสูงสุดทำลายสถิติในบางพื้นที่
+2025,April,58.0,Chiang Rai,160,Hazardous,พายุฤดูร้อนช่วยลดฝุ่นลงเล็กน้อยช่วงปลายเดือน
+2025,May,28.5,Lampang,65,Moderate,เข้าสู่ฤดูฝนเต็มตัว`;
+
+        // --- 3. Event Listeners ---
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            processCSV(mockCSV); // Load mock data on start
+        });
+
+        document.getElementById('csvInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileName').textContent = file.name;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                processCSV(event.target.result);
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('yearFilter').addEventListener('change', (e) => {
+            updateCharts(rawData, e.target.value);
+        });
+
+        // --- 4. Modal Functions ---
+        const urlModal = document.getElementById('urlModal');
+        
+        function openUrlModal() {
+            urlModal.classList.remove('hidden');
+            urlModal.classList.add('flex');
+            setTimeout(() => {
+                urlModal.querySelector('div').classList.add('modal-enter-active'); // Simple animation trigger if needed
+            }, 10);
+        }
+
+        function closeUrlModal() {
+            urlModal.classList.add('hidden');
+            urlModal.classList.remove('flex');
+        }
+
+        // Close on click outside
+        urlModal.addEventListener('click', (e) => {
+            if (e.target === urlModal) closeUrlModal();
+        });
+
+        function loadFromUrl() {
+            const url = document.getElementById('urlInput').value.trim();
+            if (!url) {
+                alert("Please enter a valid URL");
+                return;
+            }
+
+            closeUrlModal();
+            showStatus(true, "Downloading data from URL...");
+            
+            // Use PapaParse remote download
+            Papa.parse(url, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true,
+                complete: (results) => {
+                    document.getElementById('fileName').textContent = "Remote URL Data";
+                    processParsedData(results.data);
+                },
+                error: (err) => {
+                    console.error(err);
+                    alert("Error loading URL: " + err.message + "\n\nNote: If using Google Sheets, make sure it is 'Published to Web' as CSV.");
+                    showStatus(false);
+                }
+            });
+        }
+
+        // --- 5. Core Logic ---
+
+        function processCSV(csvText) {
+            showStatus(true);
+            Papa.parse(csvText, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true,
+                complete: (results) => {
+                   processParsedData(results.data);
+                },
+                error: (err) => {
+                    alert("เกิดข้อผิดพลาดในการอ่าน CSV: " + err.message);
+                    showStatus(false);
+                }
+            });
+        }
+
+        // Shared processing logic (used by File Upload, Mock Data, and URL Load)
+        function processParsedData(data) {
+             rawData = data;
+            
+            if (rawData.length === 0) {
+                alert("ไม่พบข้อมูลในไฟล์ CSV");
+                showStatus(false);
+                return;
+            }
+
+            // Pre-process data to handle Year/Month separation
+            rawData = rawData.map(row => {
+                let normalizedDate;
+                let sortValue;
+
+                // Case 1: Separate Year and Month columns
+                if (row.Year && row.Month) {
+                    const monthIndex = monthMap[row.Month] !== undefined ? monthMap[row.Month] : 0;
+                    normalizedDate = new Date(row.Year, monthIndex, 1);
+                    sortValue = row.Year * 100 + (monthIndex + 1);
+                } 
+                // Case 2: Standard Date column
+                else if (row.Date) {
+                    normalizedDate = new Date(row.Date);
+                    sortValue = normalizedDate.getFullYear() * 100 + (normalizedDate.getMonth() + 1);
+                } else {
+                    normalizedDate = new Date();
+                    sortValue = 0;
+                }
+                
+                return {
+                    ...row,
+                    _normalizedDate: normalizedDate,
+                    _sortValue: sortValue,
+                    _year: normalizedDate.getFullYear(),
+                    _monthName: normalizedDate.toLocaleString('default', { month: 'short' })
+                };
+            });
+
+            // Sort by date
+            rawData.sort((a, b) => a._sortValue - b._sortValue);
+
+            analyzeAndRender(rawData);
+            showStatus(false);
+        }
+
+        function analyzeAndRender(data) {
+            // A. Detect Columns
+            const keys = Object.keys(data[0]).filter(k => !k.startsWith('_'));
+            
+            // Try to find the "Value" column
+            let valueKey = keys.find(k => k.includes("PM2.5") || k.includes("Value") || k.toLowerCase().includes("sales"));
+            if (!valueKey) {
+                valueKey = keys.find(k => typeof data[0][k] === 'number');
+            }
+
+            // Try to find "Peak/Max" column
+            let peakKey = keys.find(k => k.includes("Peak") || k.includes("Highest") || k.includes("Max"));
+
+            document.getElementById('detectedColumns').textContent = `Value Col: ${valueKey || 'Auto'}`;
+
+            // B. Calculate KPIs
+            const totalRecords = data.length;
+            const values = data.map(d => parseFloat(d[valueKey]) || 0);
+            const sum = values.reduce((a, b) => a + b, 0);
+            const avg = totalRecords ? (sum / totalRecords).toFixed(2) : 0;
+            
+            let maxRow = data[0];
+            let maxVal = -Infinity;
+            const compareKey = peakKey && typeof data[0][peakKey] === 'number' ? peakKey : valueKey;
+            
+            data.forEach(row => {
+                const val = parseFloat(row[compareKey]) || 0;
+                if (val > maxVal) {
+                    maxVal = val;
+                    maxRow = row;
+                }
+            });
+
+            document.getElementById('kpiCount').textContent = totalRecords;
+            document.getElementById('kpiAvg').textContent = avg;
+            document.getElementById('kpiMax').textContent = maxVal.toLocaleString();
+            document.getElementById('kpiMaxDetail').textContent = maxRow['Highest Province'] || maxRow['Product'] || 'สูงสุดในข้อมูล';
+            
+            const uniqueYears = [...new Set(data.map(d => d._year))].filter(y => !isNaN(y));
+            
+            if(uniqueYears.length > 0) {
+                 document.getElementById('dataRangeLabel').textContent = `${Math.min(...uniqueYears)} - ${Math.max(...uniqueYears)}`;
+                 document.getElementById('kpiLatestYear').textContent = Math.max(...uniqueYears);
+            }
+           
+            
+            // Update Filter Dropdown
+            const filterSelect = document.getElementById('yearFilter');
+            filterSelect.innerHTML = '<option value="all">แสดงทุกปี</option>';
+            uniqueYears.sort().reverse().forEach(y => {
+                const opt = document.createElement('option');
+                opt.value = y;
+                opt.textContent = y;
+                filterSelect.appendChild(opt);
+            });
+
+            // C. Render Charts
+            renderCharts(data, valueKey);
+
+            // D. Render Table
+            renderTable(data, keys);
+        }
+
+        function renderCharts(data, valueKey) {
+            // 1. Prepare Monthly Data (Line Chart)
+            const labels = data.map(d => `${d.Month || d._monthName} ${d._year}`);
+            const dataPoints = data.map(d => d[valueKey]);
+            
+            const pointColors = dataPoints.map(v => {
+                if (v > 50) return '#ef4444'; // Red
+                if (v > 37) return '#f97316'; // Orange
+                if (v > 25) return '#eab308'; // Yellow
+                return '#22c55e'; // Green
+            });
+
+            const ctxMonthly = document.getElementById('monthlyChart').getContext('2d');
+            if (chartInstances.monthly) chartInstances.monthly.destroy();
+
+            chartInstances.monthly = new Chart(ctxMonthly, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: valueKey,
+                        data: dataPoints,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        pointBackgroundColor: pointColors,
+                        pointRadius: 4,
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.parsed.y} µg/m³`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [2, 4] }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // 2. Prepare Yearly Data (Bar Chart)
+            const yearlyData = {};
+            data.forEach(d => {
+                if (!yearlyData[d._year]) {
+                    yearlyData[d._year] = { sum: 0, count: 0 };
+                }
+                yearlyData[d._year].sum += (parseFloat(d[valueKey]) || 0);
+                yearlyData[d._year].count++;
+            });
+
+            const years = Object.keys(yearlyData).sort();
+            const yearlyAvgs = years.map(y => (yearlyData[y].sum / yearlyData[y].count).toFixed(2));
+
+            const ctxYearly = document.getElementById('yearlyChart').getContext('2d');
+            if (chartInstances.yearly) chartInstances.yearly.destroy();
+
+            chartInstances.yearly = new Chart(ctxYearly, {
+                type: 'bar',
+                data: {
+                    labels: years,
+                    datasets: [{
+                        label: 'Average per Year',
+                        data: yearlyAvgs,
+                        backgroundColor: [
+                            '#60a5fa', '#34d399', '#f472b6', '#a78bfa'
+                        ],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { borderDash: [2, 4] }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateCharts(data, selectedYear) {
+            // Find columns again (simplified for update)
+            const keys = Object.keys(data[0]).filter(k => !k.startsWith('_'));
+            let valueKey = keys.find(k => k.includes("PM2.5") || k.includes("Value") || k.toLowerCase().includes("sales")) || keys.find(k => typeof data[0][k] === 'number');
+
+            let filteredData = data;
+            if (selectedYear !== 'all') {
+                filteredData = data.filter(d => d._year.toString() === selectedYear);
+            }
+
+            // Update Monthly Chart Only
+            const labels = filteredData.map(d => `${d.Month || d._monthName} ${selectedYear === 'all' ? d._year : ''}`);
+            const dataPoints = filteredData.map(d => d[valueKey]);
+            const pointColors = dataPoints.map(v => {
+                 if (v > 50) return '#ef4444';
+                 if (v > 37) return '#f97316';
+                 if (v > 25) return '#eab308';
+                 return '#22c55e'; 
+            });
+
+            chartInstances.monthly.data.labels = labels;
+            chartInstances.monthly.data.datasets[0].data = dataPoints;
+            chartInstances.monthly.data.datasets[0].pointBackgroundColor = pointColors;
+            chartInstances.monthly.update();
+        }
+
+        function renderTable(data, headers) {
+            const thead = document.getElementById('tableHeader');
+            const tbody = document.getElementById('tableBody');
+            
+            // Headers
+            let headerHTML = '<tr>';
+            headers.forEach(h => {
+                headerHTML += `<th scope="col" class="px-6 py-3 min-w-[120px]">${h}</th>`;
+            });
+            headerHTML += '</tr>';
+            thead.innerHTML = headerHTML;
+
+            // Body (Limit to 100 rows for performance)
+            const displayData = data.slice(0, 100); // Show max 100 rows
+            let bodyHTML = '';
+            
+            displayData.forEach(row => {
+                bodyHTML += '<tr class="bg-white hover:bg-slate-50 transition">';
+                headers.forEach(h => {
+                    let cellData = row[h];
+                    // Add styling for specific columns (like Impact Level)
+                    if (h === 'Health Impact Level') {
+                        let colorClass = 'text-slate-600';
+                        if(cellData === 'Unhealthy') colorClass = 'text-red-600 font-semibold';
+                        if(cellData === 'Hazardous') colorClass = 'text-purple-600 font-bold';
+                        if(cellData === 'Good') colorClass = 'text-green-600';
+                        bodyHTML += `<td class="px-6 py-4 ${colorClass}">${cellData}</td>`;
+                    } else {
+                        bodyHTML += `<td class="px-6 py-4 font-medium text-slate-900 whitespace-nowrap">${cellData !== null ? cellData : ''}</td>`;
+                    }
+                });
+                bodyHTML += '</tr>';
+            });
+            tbody.innerHTML = bodyHTML;
+        }
+
+        function showStatus(isLoading, text = "กำลังประมวลผลข้อมูล...") {
+            const el = document.getElementById('statusMessage');
+            document.getElementById('statusText').textContent = text;
+            if (isLoading) el.classList.remove('hidden');
+            else el.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
